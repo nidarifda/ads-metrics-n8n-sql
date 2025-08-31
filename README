@@ -1,0 +1,23 @@
+# ads-metrics-n8n-sql
+
+Ingestion (n8n) ➜ Postgres ➜ KPI SQL ➜ `/metrics` API.
+
+## Setup
+1) Run SQL
+- `sql/01_create_table.sql`
+- (Optional) `sql/02_unique_index.sql`
+- (Optional) `VACUUM ANALYZE public.ads_spend;`
+
+2) Import workflow
+- n8n → Import `ingestion/n8n_workflow.json`
+- Set Postgres credentials on the nodes.
+
+3) Ingestion
+- Execute the ingestion branch once (adds `load_date`, `source_file_name`, UPSERTs to `public.ads_spend`).
+
+4) Verify
+```sql
+SELECT COUNT(*) FROM public.ads_spend;
+SELECT MIN(date), MAX(date) FROM public.ads_spend;
+SELECT load_date::timestamp(0) AS load_batch, COUNT(*) 
+FROM public.ads_spend GROUP BY 1 ORDER BY 1 DESC;
