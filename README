@@ -1,4 +1,4 @@
-# ads-metrics-n8n-sql
+#ads-metrics-n8n-sql
 
 Ingestion (n8n) ➜ Postgres ➜ KPI SQL ➜ `/metrics` API.
 
