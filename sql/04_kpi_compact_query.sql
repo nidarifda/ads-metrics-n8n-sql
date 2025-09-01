@@ -1,5 +1,6 @@
+-- sql/04_kpi_compact_query.sql  (dynamic)
 WITH params AS (
-  SELECT DATE '2025-06-30' AS end_date, 30::int AS n_days
+  SELECT (SELECT MAX(date) FROM public.ads_spend)::date AS end_date, 30::int AS n_days
 ),
 bounds AS (
   SELECT
@@ -17,8 +18,8 @@ agg AS (
       WHEN s.date BETWEEN b.last_start AND b.last_end THEN 'last'
       WHEN s.date BETWEEN b.prev_start AND b.prev_end THEN 'prev'
     END AS period,
-    SUM(s.spend)       AS spend,
-    SUM(s.conversions) AS conv
+    SUM(s.spend)::numeric       AS spend,
+    SUM(s.conversions)::numeric AS conv
   FROM public.ads_spend s
   CROSS JOIN bounds b
   WHERE s.date BETWEEN b.prev_start AND b.last_end
@@ -35,20 +36,19 @@ pivot AS (
 unioned AS (
   -- CAC
   SELECT 'CAC' AS metric,
-         (spend_last/NULLIF(conv_last,0))                   AS value_current,
-         (spend_prev/NULLIF(conv_prev,0))                   AS value_prior,
-         (spend_last/NULLIF(conv_last,0)) - (spend_prev/NULLIF(conv_prev,0)) AS abs_delta,
+         (spend_last/NULLIF(conv_last,0))                                        AS value_current,
+         (spend_prev/NULLIF(conv_prev,0))                                        AS value_prior,
+         (spend_last/NULLIF(conv_last,0)) - (spend_prev/NULLIF(conv_prev,0))     AS abs_delta,
          CASE WHEN (spend_prev/NULLIF(conv_prev,0))=0 THEN NULL
               ELSE ((spend_last/NULLIF(conv_last,0)) - (spend_prev/NULLIF(conv_prev,0)))
-                   / (spend_prev/NULLIF(conv_prev,0)) END   AS pct_delta
+                   / (spend_prev/NULLIF(conv_prev,0)) END                         AS pct_delta
   FROM pivot
   UNION ALL
   -- Conversions
   SELECT 'Conversions',
          conv_last, conv_prev,
          (conv_last - conv_prev),
-         CASE WHEN conv_prev=0 THEN NULL
-              ELSE (conv_last - conv_prev)::numeric / conv_prev END
+         CASE WHEN conv_prev=0 THEN NULL ELSE (conv_last - conv_prev)::numeric / conv_prev END
   FROM pivot
   UNION ALL
   -- ROAS (rev = conv * 100)
@@ -65,8 +65,7 @@ unioned AS (
   SELECT 'Spend',
          spend_last, spend_prev,
          (spend_last - spend_prev),
-         CASE WHEN spend_prev=0 THEN NULL
-              ELSE (spend_last - spend_prev)/spend_prev END
+         CASE WHEN spend_prev=0 THEN NULL ELSE (spend_last - spend_prev)/spend_prev END
   FROM pivot
 )
 SELECT
