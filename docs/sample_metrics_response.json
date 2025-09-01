@@ -1,0 +1,30 @@
+[
+  {
+    "metric": "CAC",
+    "value_current": 29.890986180210064,
+    "value_prior": 32.196396051103385,
+    "abs_delta": -2.305409870893321,
+    "pct_delta": -0.071604594105318
+  },
+  {
+    "metric": "Conversions",
+    "value_current": 9045,
+    "value_prior": 8610,
+    "abs_delta": 435,
+    "pct_delta": 0.050522648083623695
+  },
+  {
+    "metric": "ROAS",
+    "value_current": 3.345490155363527,
+    "value_prior": 3.1059376907053844,
+    "abs_delta": 0.2395524646581424,
+    "pct_delta": 0.07712726027151498
+  },
+  {
+    "metric": "Spend",
+    "value_current": 270363.97,
+    "value_prior": 277210.97,
+    "abs_delta": -6847.000000000116,
+    "pct_delta": -0.024699599730848
+  }
+]
