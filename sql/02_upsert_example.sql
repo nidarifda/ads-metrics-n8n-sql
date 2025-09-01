@@ -20,3 +20,22 @@ DO UPDATE SET
   "conversions"      = EXCLUDED."conversions",
   "load_date"        = now(),
   "source_file_name" = EXCLUDED."source_file_name";
+
+
+/* Query Parameters*/
+{{
+[
+  $json.date,                          // 1
+  $json.platform,                      // 2
+  $json.account,                       // 3
+  $json.campaign,                      // 4
+  $json.country,                       // 5
+  $json.device,                        // 6
+  String($json.spend ?? ''),           // 7
+  String($json.clicks ?? ''),          // 8
+  String($json.impressions ?? ''),     // 9
+  String($json.conversions ?? ''),     // 10
+  ($json.load_date ?? new Date().toISOString()),  // 11
+  ($json.source_file_name ?? 'ads_spend.csv')     // 12
+]
+}}
