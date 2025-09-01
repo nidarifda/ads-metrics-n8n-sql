@@ -1,3 +1,10 @@
+SELECT date, platform, account, campaign, country, device, COUNT(*) AS cnt
+FROM public.ads_spend
+GROUP BY 1,2,3,4,5,6
+HAVING COUNT(*) > 1
+ORDER BY cnt DESC
+LIMIT 50;
+
 BEGIN;
 
 WITH ranked AS (
@@ -15,7 +22,3 @@ WHERE t.ctid = r.ctid
   AND r.rn > 1;
 
 COMMIT;
-
--- Enforce uniqueness for idempotent loads
-CREATE UNIQUE INDEX IF NOT EXISTS ux_ads_spend_nk
-  ON public.ads_spend (date, platform, account, campaign, country, device);
