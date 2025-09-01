@@ -1,5 +1,4 @@
 BEGIN;
-
 WITH ranked AS (
   SELECT
     ctid,
@@ -15,3 +14,8 @@ WHERE t.ctid = r.ctid
   AND r.rn > 1;
 
 COMMIT;
+
+
+/* Create Unique Index*/
+CREATE UNIQUE INDEX IF NOT EXISTS ux_ads_spend_nk
+ON public.ads_spend (date, platform, account, campaign, country, device);
