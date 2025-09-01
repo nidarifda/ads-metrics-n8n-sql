@@ -6,10 +6,10 @@ bounds AS (
   SELECT
     end_date,
     n_days,
-    (end_date - (n_days - 1)) AS last_start,
+    (end_date - (n_days - 1)) AS last_start,         -- inclusive window of n_days
     end_date                  AS last_end,
-    (end_date - (2*n_days))   AS prev_start,
-    (end_date - n_days)       AS prev_end
+    (end_date - (2*n_days - 1)) AS prev_start,       -- <-- fixed: n_days long
+    (end_date - n_days)         AS prev_end
   FROM params
 ),
 agg AS (
@@ -34,7 +34,6 @@ pivot AS (
   FROM agg
 ),
 unioned AS (
-  -- CAC
   SELECT 'CAC' AS metric,
          (spend_last/NULLIF(conv_last,0))                                        AS value_current,
          (spend_prev/NULLIF(conv_prev,0))                                        AS value_prior,
@@ -44,14 +43,12 @@ unioned AS (
                    / (spend_prev/NULLIF(conv_prev,0)) END                         AS pct_delta
   FROM pivot
   UNION ALL
-  -- Conversions
   SELECT 'Conversions',
          conv_last, conv_prev,
          (conv_last - conv_prev),
          CASE WHEN conv_prev=0 THEN NULL ELSE (conv_last - conv_prev)::numeric / conv_prev END
   FROM pivot
   UNION ALL
-  -- ROAS (rev = conv * 100)
   SELECT 'ROAS',
          (conv_last*100.0/NULLIF(spend_last,0)),
          (conv_prev*100.0/NULLIF(spend_prev,0)),
@@ -61,7 +58,6 @@ unioned AS (
                    / (conv_prev*100.0/NULLIF(spend_prev,0)) END
   FROM pivot
   UNION ALL
-  -- Spend
   SELECT 'Spend',
          spend_last, spend_prev,
          (spend_last - spend_prev),
