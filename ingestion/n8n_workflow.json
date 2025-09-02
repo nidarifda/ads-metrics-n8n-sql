@@ -37,7 +37,7 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 1,
       "position": [
-        -752,
+        -720,
         144
       ],
       "id": "f7630ccf-ed91-40d6-a178-d2d021a756eb",
@@ -54,7 +54,7 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -944,
+        -912,
         144
       ],
       "id": "d98b1b4d-d1c7-4cf8-8d69-624ce71a666e",
@@ -84,7 +84,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -32,
+        -64,
         144
       ],
       "id": "4e1a394b-9a7c-4b4f-9c52-a72fc0e3a7eb",
@@ -105,7 +105,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -576,
+        -544,
         144
       ],
       "id": "972ec81c-3119-47d9-81f4-827993485aa0",
@@ -115,15 +115,15 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "INSERT INTO public.ads_spend\n(\"date\",\"platform\",\"account\",\"campaign\",\"country\",\"device\",\n \"spend\",\"clicks\",\"impressions\",\"conversions\",\"load_date\",\"source_file_name\")\nVALUES\n($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)\nON CONFLICT (date, platform, account, campaign, country, device) DO UPDATE\nSET  spend            = EXCLUDED.spend,\n     clicks           = EXCLUDED.clicks,\n     impressions      = EXCLUDED.impressions,\n     conversions      = EXCLUDED.conversions,\n     load_date        = EXCLUDED.load_date,\n     source_file_name = EXCLUDED.source_file_name;",
+        "query": "INSERT INTO public.ads_spend (\n  \"date\",\"platform\",\"account\",\"campaign\",\"country\",\"device\",\n  \"spend\",\"clicks\",\"impressions\",\"conversions\",\"load_date\",\"source_file_name\"\n)\nVALUES (\n  $1::date,\n  $2::text, $3::text, $4::text, $5::text, $6::text,\n  NULLIF($7::text,'')::double precision,\n  NULLIF($8::text,'')::int,\n  NULLIF($9::text,'')::int,\n  NULLIF($10::text,'')::int,\n  COALESCE($11::timestamptz, now()),\n  COALESCE(NULLIF($12::text,''), 'ads_spend.csv')\n)\nON CONFLICT (\"date\",\"platform\",\"account\",\"campaign\",\"country\",\"device\")\nDO UPDATE SET\n  \"spend\"            = EXCLUDED.\"spend\",\n  \"clicks\"           = EXCLUDED.\"clicks\",\n  \"impressions\"      = EXCLUDED.\"impressions\",\n  \"conversions\"      = EXCLUDED.\"conversions\",\n  \"load_date\"        = now(),\n  \"source_file_name\" = EXCLUDED.\"source_file_name\";",
         "options": {
-          "queryReplacement": "={{\n[\n  $json.date,\n  $json.platform,\n  $json.account,\n  $json.campaign,\n  $json.country,\n  $json.device,\n  Number($json.spend),\n  Number($json.clicks),\n  Number($json.impressions),\n  Number($json.conversions),\n  $json.load_date,\n  $json.source_file_name\n]\n}}"
+          "queryReplacement": "={{\n[\n  $json.date,                          // 1\n  $json.platform,                      // 2\n  $json.account,                       // 3\n  $json.campaign,                      // 4\n  $json.country,                       // 5\n  $json.device,                        // 6\n  String($json.spend ?? ''),           // 7\n  String($json.clicks ?? ''),          // 8\n  String($json.impressions ?? ''),     // 9\n  String($json.conversions ?? ''),     // 10\n  ($json.load_date ?? new Date().toISOString()),  // 11\n  ($json.source_file_name ?? 'ads_spend.csv')     // 12\n]\n}}"
         }
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,
       "position": [
-        144,
+        96,
         144
       ],
       "id": "ef2a74e4-6ded-4f14-89b7-e75a1f4f1c9d",
@@ -145,13 +145,14 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
       "position": [
-        -944,
+        -912,
         368
       ],
       "id": "9d37d8c2-e215-4bbd-9470-cdb3113850fc",
       "name": "Webhook",
       "webhookId": "c7a5ddfe-a8a3-4423-8527-1f925b6ca5e5",
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "executeOnce": true
     },
     {
       "parameters": {
@@ -180,6 +181,7 @@
       "parameters": {
         "respondWith": "allIncomingItems",
         "options": {
+          "responseCode": 200,
           "responseHeaders": {
             "entries": [
               {
@@ -198,6 +200,59 @@
       ],
       "id": "ba782420-98b3-4f8e-8895-f181408337c9",
       "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH params AS (\n  SELECT to_date($1,'YYYY-MM-DD') AS start_date,\n         to_date($2,'YYYY-MM-DD') AS end_date\n),\nbounds AS (\n  SELECT start_date, end_date, (end_date - start_date + 1) AS n_days FROM params\n),\nperiods AS (\n  SELECT start_date, end_date,\n         (start_date - (SELECT n_days FROM bounds)) AS prev_start,\n         (end_date   - (SELECT n_days FROM bounds)) AS prev_end\n  FROM bounds\n),\nagg AS (\n  SELECT CASE\n           WHEN s.date BETWEEN p.start_date AND p.end_date THEN 'last'\n           WHEN s.date BETWEEN p.prev_start AND p.prev_end THEN 'prev'\n         END AS period,\n         SUM(s.spend)::numeric       AS spend,\n         SUM(s.conversions)::numeric AS conv\n  FROM public.ads_spend s\n  CROSS JOIN periods p\n  WHERE s.date BETWEEN p.prev_start AND p.end_date\n  GROUP BY 1\n),\npivot AS (\n  SELECT\n    MAX(CASE WHEN period='last' THEN spend END) AS spend_last,\n    MAX(CASE WHEN period='prev' THEN spend END) AS spend_prev,\n    MAX(CASE WHEN period='last' THEN conv  END) AS conv_last,\n    MAX(CASE WHEN period='prev' THEN conv  END) AS conv_prev\n  FROM agg\n),\nunioned AS (\n  -- CAC\n  SELECT 'CAC' AS metric,\n         (spend_last/NULLIF(conv_last,0))                   AS value_current,\n         (spend_prev/NULLIF(conv_prev,0))                   AS value_prior,\n         (spend_last/NULLIF(conv_last,0)) - (spend_prev/NULLIF(conv_prev,0)) AS delta_abs,\n         CASE WHEN (spend_prev/NULLIF(conv_prev,0))=0 THEN NULL\n              ELSE ((spend_last/NULLIF(conv_last,0)) - (spend_prev/NULLIF(conv_prev,0)))\n                   / (spend_prev/NULLIF(conv_prev,0)) END   AS pct_delta\n  FROM pivot\n  UNION ALL\n  -- Conversions\n  SELECT 'Conversions',\n         conv_last, conv_prev,\n         (conv_last - conv_prev)                            AS delta_abs,\n         CASE WHEN conv_prev=0 THEN NULL\n              ELSE (conv_last - conv_prev)::numeric / conv_prev END AS pct_delta\n  FROM pivot\n  UNION ALL\n  -- ROAS\n  SELECT 'ROAS',\n         (conv_last*100.0/NULLIF(spend_last,0)),\n         (conv_prev*100.0/NULLIF(spend_prev,0)),\n         (conv_last*100.0/NULLIF(spend_last,0)) - (conv_prev*100.0/NULLIF(spend_prev,0)) AS delta_abs,\n         CASE WHEN (conv_prev*100.0/NULLIF(spend_prev,0))=0 THEN NULL\n              ELSE ((conv_last*100.0/NULLIF(spend_last,0)) - (conv_prev*100.0/NULLIF(spend_prev,0)))\n                   / (conv_prev*100.0/NULLIF(spend_prev,0)) END AS pct_delta\n  FROM pivot\n  UNION ALL\n  -- Spend\n  SELECT 'Spend',\n         spend_last, spend_prev,\n         (spend_last - spend_prev)                          AS delta_abs,\n         CASE WHEN spend_prev=0 THEN NULL\n              ELSE (spend_last - spend_prev)/spend_prev END AS pct_delta\n  FROM pivot\n)\nSELECT\n  metric,\n  ROUND(value_current::numeric, 4) AS value_current,\n  ROUND(value_prior::numeric,   4) AS value_prior,\n  ROUND(delta_abs::numeric,     4) AS delta_abs,   -- <- use delta_abs here\n  ROUND(100*pct_delta::numeric, 2) AS delta_pct\nFROM unioned\nORDER BY metric;",
+        "options": {
+          "queryReplacement": "{{ $json.start || '2025-06-01' }}, {{ $json.end || '2025-06-30' }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        432,
+        144
+      ],
+      "id": "dff75f75-5adb-42f8-9765-526ab73042dc",
+      "name": "Execute a SQL query2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "PtYSIVg7igaAdMtd",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "17408e4d-bdd4-46d9-be96-db482328ad04",
+              "name": "start",
+              "value": "2025-06-01",
+              "type": "string"
+            },
+            {
+              "id": "9c66777e-29d2-4961-be96-f64d2beaaf3d",
+              "name": "end",
+              "value": "2025-06-30",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        256,
+        144
+      ],
+      "id": "91d70a0b-36e2-43c9-9f40-71424c4b9112",
+      "name": "Edit Fields"
     }
   ],
   "pinData": {},
@@ -289,13 +344,35 @@
           }
         ]
       ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "aeb7c500-71fe-46ae-90a6-5f0f58f04f65",
+  "versionId": "f9ae0938-3840-4b60-8b56-84105d76d399",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "218ebb458174679959933de8b3075b8629ad3da4039cbf22168a634876cfa68b"
