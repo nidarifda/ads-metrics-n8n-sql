@@ -1,0 +1,30 @@
+[
+  {
+    "metric": "CAC",
+    "value_current": 12.45,
+    "value_prior": 11.02,
+    "abs_delta": 1.43,
+    "delta_pct": 12.98
+  },
+  {
+    "metric": "Conversions",
+    "value_current": 1234,
+    "value_prior": 1111,
+    "abs_delta": 123,
+    "delta_pct": 11.07
+  },
+  {
+    "metric": "ROAS",
+    "value_current": 2.3456,
+    "value_prior": 2.1001,
+    "abs_delta": 0.2455,
+    "delta_pct": 11.69
+  },
+  {
+    "metric": "Spend",
+    "value_current": 54321.00,
+    "value_prior": 50000.00,
+    "abs_delta": 4321.00,
+    "delta_pct": 8.64
+  }
+]
