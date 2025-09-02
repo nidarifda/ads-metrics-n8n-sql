@@ -1,46 +1,173 @@
-### Agent Demo (template)
-**User:** “Compare CAC and ROAS for last 30 days vs prior 30 days.”
+<!-- README.md (HTML) -->
 
-**Mapped SQL:**
-```sql
--- Runs as-is against public.ads_spend
-WITH bounds AS (
-  SELECT MAX(date)::date AS anchor FROM public.ads_spend
-),
-last_30 AS (
-  SELECT SUM(spend)::numeric AS spend, SUM(conversions)::numeric AS conv
-  FROM public.ads_spend a CROSS JOIN bounds b
-  WHERE a.date BETWEEN (b.anchor - INTERVAL '29 days') AND b.anchor
-),
-prior_30 AS (
-  SELECT SUM(spend)::numeric AS spend, SUM(conversions)::numeric AS conv
-  FROM public.ads_spend a CROSS JOIN bounds b
-  WHERE a.date BETWEEN (b.anchor - INTERVAL '59 days') AND (b.anchor - INTERVAL '30 days')
-),
-vals AS (
-  SELECT l.spend AS last_spend, l.conv AS last_conv,
-         p.spend AS prior_spend, p.conv AS prior_conv
-  FROM last_30 l CROSS JOIN prior_30 p
-)
-SELECT * FROM (
-  SELECT 'CAC' AS metric,
-         ROUND(CASE WHEN last_conv  > 0 THEN last_spend  / last_conv  END, 2) AS last_30_value,
-         ROUND(CASE WHEN prior_conv > 0 THEN prior_spend / prior_conv END, 2) AS prior_30_value,
-         ROUND((CASE WHEN last_conv>0 THEN last_spend/last_conv END) -
-               (CASE WHEN prior_conv>0 THEN prior_spend/prior_conv END), 2) AS delta_abs,
-         ROUND(100.0 * ((CASE WHEN last_conv>0 THEN last_spend/last_conv END) -
-                        (CASE WHEN prior_conv>0 THEN prior_spend/prior_conv END))
-               / NULLIF((CASE WHEN prior_conv>0 THEN prior_spend/prior_conv END),0), 2) AS delta_pct
-  FROM vals
-  UNION ALL
-  SELECT 'ROAS',
-         ROUND(CASE WHEN last_spend>0 THEN (last_conv*100.0)/last_spend END, 4),
-         ROUND(CASE WHEN prior_spend>0 THEN (prior_conv*100.0)/prior_spend END, 4),
-         ROUND((CASE WHEN last_spend>0 THEN (last_conv*100.0)/last_spend END) -
-               (CASE WHEN prior_spend>0 THEN (prior_conv*100.0)/prior_spend END), 4),
-         ROUND(100.0 * ((CASE WHEN last_spend>0 THEN (last_conv*100.0)/last_spend END) -
-                        (CASE WHEN prior_spend>0 THEN (prior_conv*100.0)/prior_spend END))
-               / NULLIF((CASE WHEN prior_spend>0 THEN (prior_conv*100.0)/prior_spend END),0), 2)
-  FROM vals
-) f
-ORDER BY metric;
+<h1>Ads Metrics — n8n + SQL</h1>
+<p>A small ingestion → modeling → access demo.</p>
+
+<hr />
+
+<h2>Stack</h2>
+<ul>
+  <li><strong>n8n</strong> for orchestration (load CSV → Postgres, expose a tiny API)</li>
+  <li><strong>Postgres</strong> for storage &amp; SQL modeling</li>
+</ul>
+
+<hr />
+
+<h2>Repo layout</h2>
+<pre><code>/ingestion/n8n_workflow.json
+
+/sql/01_create_table.sql
+/sql/02_upsert_example.sql
+/sql/03_dedupe_and_index.sql
+/sql/04_kpi_compact_query.sql
+/sql/04b_kpi_by_platform.sql
+/sql/05_view_v_ads_daily.sql
+/sql/06_view_kpi_30d_vs_prior.sql
+/sql/07_agent_demo_query.sql
+
+/docs/n8n_workflow.png
+/docs/kpi_modeling_result.png
+/docs/sample_metrics_response.json
+</code></pre>
+
+<hr />
+
+<h2>Setup (Postgres)</h2>
+<ol>
+  <li>Create the base table and enforce uniqueness (idempotent loads):</li>
+</ol>
+
+<pre><code class="language-bash">psql "$DATABASE_URL" -f sql/01_create_table.sql
+psql "$DATABASE_URL" -f sql/03_dedupe_and_index.sql
+</code></pre>
+
+<ul>
+  <li><strong>Provenance columns:</strong> <code>load_date TIMESTAMPTZ DEFAULT now()</code>, <code>source_file_name TEXT</code>.</li>
+  <li><strong>Uniqueness key:</strong> <code>(date, platform, account, campaign, country, device)</code>.</li>
+</ul>
+
+<p><em>n8n uses <code>sql/02_upsert_example.sql</code> (<code>ON CONFLICT … DO UPDATE</code>) when loading rows.</em></p>
+
+<hr />
+
+<h2>n8n: Import &amp; Run</h2>
+<ol>
+  <li>Import <strong><code>ingestion/n8n_workflow.json</code></strong> into your n8n instance.</li>
+  <li>Configure the Postgres credentials on the Postgres nodes.</li>
+  <li>Click <strong>Execute workflow</strong> on the ingestion lane (top row).</li>
+  <li>Re-run to verify idempotency (no duplicates thanks to the unique index).</li>
+</ol>
+
+<p><img src="docs/n8n_workflow.png" alt="n8n workflow" width="900" /></p>
+
+<hr />
+
+<h2>KPIs</h2>
+<ul>
+  <li><strong>CAC</strong> = <code>spend / conversions</code></li>
+  <li><strong>ROAS</strong> = <code>revenue / spend</code>, where <strong>revenue = conversions × 100</strong></li>
+</ul>
+
+<h3>Last 30 vs prior 30 (compact table)</h3>
+<p>Run:</p>
+<pre><code class="language-sql">-- sql/04_kpi_compact_query.sql
+</code></pre>
+
+<p>Returns 4 rows (CAC, Conversions, ROAS, Spend) with: <code>value_current</code>, <code>value_prior</code>, <code>abs_delta</code>, <code>pct_delta</code>.</p>
+
+<p><img src="docs/kpi_modeling_result.png" alt="KPI compact table" width="600" /></p>
+
+<h3>By platform</h3>
+<pre><code class="language-sql">-- sql/04b_kpi_by_platform.sql
+</code></pre>
+
+<h3>Analyst-friendly daily view</h3>
+<pre><code class="language-sql">-- sql/05_view_v_ads_daily.sql
+-- Creates public.v_ads_daily with CAC/ROAS per day
+</code></pre>
+
+<hr />
+
+<h2>Analyst Access (tiny API)</h2>
+<p>The workflow exposes a read-only endpoint that returns the <strong>compact KPI table</strong> as JSON.</p>
+
+<h3>Production URL</h3>
+<pre><code>GET https://&lt;your-n8n-host&gt;/webhook/metrics
+GET https://&lt;your-n8n-host&gt;/webhook/metrics?start=YYYY-MM-DD&amp;end=YYYY-MM-DD
+</code></pre>
+
+<ul>
+  <li>If <code>start</code>/<code>end</code> are omitted, the query defaults to <strong>last 30 days ending at MAX(date)</strong> in <code>public.ads_spend</code>.</li>
+</ul>
+
+<h3>Example</h3>
+<pre><code class="language-bash">curl "https://&lt;your-n8n-host&gt;/webhook/metrics?start=2025-06-01&amp;end=2025-06-30"
+</code></pre>
+
+<p>Sample response: see <a href="docs/sample_metrics_response.json"><code>/docs/sample_metrics_response.json</code></a>.</p>
+
+<blockquote>
+  <p><strong>Notes</strong></p>
+  <ul>
+    <li>In n8n, the Webhook node path is <code>/metrics</code>.</li>
+    <li>The following Postgres node binds <strong>$1 = start</strong> and <strong>$2 = end</strong> (strings).</li>
+    <li>The SQL handles missing params by defaulting to <code>MAX(date)</code> and a 30-day window.</li>
+  </ul>
+</blockquote>
+
+<hr />
+
+<h2>Agent Demo (bonus)</h2>
+<p><strong>NL prompt:</strong> “Compare CAC and ROAS for last 30 days vs prior 30 days.”</p>
+
+<p><strong>Mapping:</strong> The <code>/metrics</code> endpoint runs the same compact KPI SQL (defaults to the last 30-day window ending at <code>MAX(date)</code>), which directly answers the question.</p>
+
+<p>Alternatively, run:</p>
+<pre><code class="language-sql">-- sql/07_agent_demo_query.sql
+</code></pre>
+
+<hr />
+
+<h2>Persistence / QA quick checks</h2>
+
+<h3>Row counts by batch</h3>
+<pre><code class="language-sql">SELECT load_date::date AS batch, COUNT(*)
+FROM public.ads_spend
+GROUP BY 1
+ORDER BY 1 DESC;
+</code></pre>
+
+<h3>Provenance sanity</h3>
+<pre><code class="language-sql">SELECT COALESCE(source_file_name,'(null)') AS file,
+       MIN(load_date) AS first_load,
+       MAX(load_date) AS last_load,
+       COUNT(*)       AS rows
+FROM public.ads_spend
+GROUP BY 1
+ORDER BY last_load DESC;
+</code></pre>
+
+<hr />
+
+<h2>Deliverables checklist</h2>
+<ul>
+  <li>n8n access: production URL + read-only user, or attach/export <code>ingestion/n8n_workflow.json</code></li>
+  <li>GitHub repo (public) with:
+    <ul>
+      <li>Ingestion workflow JSON</li>
+      <li>SQL models in <code>/sql</code></li>
+      <li><strong>README</strong> (this file) with setup &amp; run steps</li>
+      <li>Results screenshot(s): <code>docs/kpi_modeling_result.png</code></li>
+    </ul>
+  </li>
+  <li>Loom video (≤ 5 minutes) explaining approach &amp; key decisions</li>
+</ul>
+
+<hr />
+
+<h2>Assumptions</h2>
+<ul>
+  <li>Revenue is <code>conversions * 100</code> (per prompt).</li>
+  <li>Windows use <strong>inclusive</strong> bounds: both “last 30” and “prior 30” are true 30-day spans.</li>
+  <li>Division-by-zero guarded: pct deltas return <code>NULL</code> when prior values are zero.</li>
+</ul>
